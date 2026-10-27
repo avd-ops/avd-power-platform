@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft. -->
+<environmentvariabledefinition schemaname="avd_HostPoolArmId">
+  <defaultvalue>/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avd-dev/providers/Microsoft.DesktopVirtualization/hostPools/hp-avd-dev</defaultvalue>
+  <description default="Azure Resource Manager ID of the target AVD Host Pool">
+    <label description="Azure Resource Manager ID of the target AVD Host Pool" languagecode="1033" />
+  </description>
+  <displayname default="AVD Host Pool ARM ID">
+    <label description="AVD Host Pool ARM ID" languagecode="1033" />
+  </displayname>
+  <introducedversion>1.0.0.0</introducedversion>
+  <iscustomizable>1</iscustomizable>
+  <isrequired>1</isrequired>
+  <secretstore>0</secretstore>
+  <type>100000000</type>
+</environmentvariabledefinition>
