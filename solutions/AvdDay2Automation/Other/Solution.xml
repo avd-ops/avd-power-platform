@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft. -->
+<ImportExportXml version="9.2.24011.100" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SolutionManifest>
+    <UniqueName>AvdDay2Automation</UniqueName>
+    <LocalizedNames>
+      <LocalizedName description="AVD Day-2 Automation" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="Day-2 Power Automate workflows for Azure Virtual Desktop access approvals and session-host drain/restart." languagecode="1033" />
+    </Descriptions>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>avdops</UniqueName>
+      <LocalizedNames>
+        <LocalizedName description="avd-ops" languagecode="1033" />
+      </LocalizedNames>
+      <Descriptions>
+        <Description description="avd-ops open toolkit for Azure Virtual Desktop" languagecode="1033" />
+      </Descriptions>
+      <EMailAddress xsi:nil="true"></EMailAddress>
+      <SupportingWebsiteUrl>https://avd-ops.dev</SupportingWebsiteUrl>
+      <CustomizationPrefix>avd</CustomizationPrefix>
+      <CustomizationOptionValuePrefix>10000</CustomizationOptionValuePrefix>
+      <Addresses />
+    </Publisher>
+    <RootComponents>
+      <RootComponent type="29" id="{00000000-0000-0000-0000-000000000101}" behavior="0" />
+      <RootComponent type="29" id="{00000000-0000-0000-0000-000000000102}" behavior="0" />
+      <RootComponent type="380" schemaName="avd_UsersGroupId" behavior="0" />
+      <RootComponent type="380" schemaName="avd_HostPoolArmId" behavior="0" />
+    </RootComponents>
+    <MissingDependencies />
+  </SolutionManifest>
+</ImportExportXml>

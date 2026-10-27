@@ -1,0 +1,9 @@
+{
+  "environmentvariablevalues": {
+    "environmentvariablevalue": {
+      "@environmentvariablevalueid": "00000000-0000-0000-0000-000000000202",
+      "iscustomizable": "1",
+      "value": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avd-dev/providers/Microsoft.DesktopVirtualization/hostPools/hp-avd-dev"
+    }
+  }
+}

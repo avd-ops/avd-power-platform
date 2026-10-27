@@ -1,0 +1,11 @@
+# Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+entra-manifest.json
+azure-outputs.json
+power-platform-manifest.json
+power-platform-run-manifest.json
+deploymentSettings.json
+*.zip
