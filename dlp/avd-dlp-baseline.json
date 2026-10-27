@@ -1,0 +1,10 @@
+{
+  "displayName": "[avd-ops] AVD Day-2 Automation Strict DLP Policy",
+  "defaultConnectorsClassification": "Blocked",
+  "businessConnectors": [
+    "/providers/Microsoft.PowerApps/apis/shared_teams",
+    "/providers/Microsoft.PowerApps/apis/shared_approvals",
+    "/providers/Microsoft.PowerApps/apis/shared_azuread",
+    "/providers/Microsoft.PowerApps/apis/shared_arm"
+  ]
+}

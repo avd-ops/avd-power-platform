@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0.0",
+  "displayName": "[avd-ops] Self-Service AVD Pool Access Request (Teams Approval)",
+  "trigger": "MicrosoftTeamsAdaptiveCardRequest",
+  "approvalGate": {
+    "type": "StartAndWaitForAnApproval",
+    "approvalType": "BasicAwaitAll"
+  },
+  "approvedAction": {
+    "connector": "shared_azuread",
+    "operation": "AddMemberToGroup",
+    "targetGroupEnvironmentVariable": "avd_UsersGroupId"
+  }
+}
