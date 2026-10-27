@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0.0",
+  "displayName": "[avd-ops] Approval-Gated Session Host Drain Mode and Restart",
+  "trigger": "ManualOrAlertWebhook",
+  "approvalGate": {
+    "type": "StartAndWaitForAnApproval",
+    "approvalType": "BasicAwaitAll"
+  },
+  "approvedAction": {
+    "connector": "shared_arm",
+    "operation": "UpdateSessionHostAllowNewSessionFalseAndRestart",
+    "hostPoolEnvironmentVariable": "avd_HostPoolArmId"
+  }
+}
