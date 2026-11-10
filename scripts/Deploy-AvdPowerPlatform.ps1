@@ -1,6 +1,7 @@
 # Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
 [CmdletBinding(SupportsShouldProcess)]
 param(
+    [Parameter()][ValidateSet('commercial', 'usgov')][string]$Cloud = 'commercial',
     [Parameter()][string]$EntraManifestPath = './entra-manifest.json',
     [Parameter()][string]$AzureOutputsPath = './azure-outputs.json',
     [Parameter()][string]$OutputPath = './power-platform-manifest.json',
@@ -23,6 +24,7 @@ if ([string]::IsNullOrWhiteSpace($PackedSolutionZipPath)) {
 }
 
 $isDryRun = $DryRun.IsPresent -or ($env:AVD_OPS_DRY_RUN -eq '1')
+$cloudExplicit = $PSBoundParameters.ContainsKey('Cloud')
 
 function Get-ContractPropertyValue {
     param(
@@ -41,6 +43,132 @@ function Get-ContractPropertyValue {
         return $val.value
     }
     return $val
+}
+
+function Resolve-AvdCloudEnvironment {
+    param(
+        [Parameter(Mandatory)][ValidateSet('commercial', 'usgov')][string]$CloudProfile,
+        [Parameter()][string]$ContractPath = (Join-Path $repoRoot 'contracts/cloud-environments.json')
+    )
+    if (-not (Test-Path -LiteralPath $ContractPath)) {
+        throw "Cloud environments contract (C26) not found at '$ContractPath'."
+    }
+    $c26 = Get-Content -LiteralPath $ContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $entry = $null
+    if ($null -ne $c26.PSObject.Properties['clouds'] -and $null -ne $c26.clouds.PSObject.Properties[$CloudProfile]) {
+        $entry = $c26.clouds.$CloudProfile
+    }
+    if ($null -eq $entry -and $null -ne $c26.PSObject.Properties['environments']) {
+        $entry = @($c26.environments | Where-Object { $_.id -eq $CloudProfile }) | Select-Object -First 1
+    }
+    if ($null -eq $entry) {
+        throw "Cloud profile '$CloudProfile' not found in '$ContractPath'."
+    }
+
+    $bapEndpoint = if ($CloudProfile -eq 'usgov') {
+        'https://gov.api.bap.microsoft.us'
+    }
+    else {
+        [string]$entry.powerPlatform.bapEndpoint
+    }
+    $bapCanonicalEndpoint = [string]$entry.powerPlatform.bapEndpoint
+    $pacCloud = [string]$entry.powerPlatform.pacCloud
+    $dataverseSuffixes = @($entry.powerPlatform.dataverseSuffixes | ForEach-Object { [string]$_ })
+    $flowEndpoint = if ($CloudProfile -eq 'usgov') {
+        'https://gov.flow.microsoft.us'
+    }
+    else {
+        'https://flow.microsoft.com'
+    }
+    $powerPlatformSuffix = if ($CloudProfile -eq 'usgov') {
+        'High.powerplatform.us'
+    }
+    else {
+        'powerplatform.com'
+    }
+
+    $vnetRegions = @()
+    if ($null -ne $entry.PSObject.Properties['capabilities'] -and $null -ne $entry.capabilities) {
+        $vnetProp = $entry.capabilities.PSObject.Properties['powerPlatformVnetInjectionRegions']
+        if ($null -ne $vnetProp -and $null -ne $vnetProp.Value) {
+            $vnetRegions = @($vnetProp.Value | ForEach-Object { [string]$_ })
+        }
+        elseif ($CloudProfile -eq 'commercial') {
+            $vnetRegions = @($entry.allowedRegions | ForEach-Object { [string]$_ })
+        }
+    }
+
+    return [pscustomobject]@{
+        id                                = $CloudProfile
+        azCloudName                       = [string]$entry.azCloudName
+        psEnvironmentName                 = [string]$entry.psEnvironmentName
+        entraEnvironment                  = [string]$entry.entraEnvironment
+        armEndpoint                       = [string]$entry.armEndpoint
+        loginEndpoint                     = [string]$entry.loginEndpoint
+        graphEndpoint                     = [string]$entry.graphEndpoint
+        bapEndpoint                       = $bapEndpoint
+        bapCanonicalEndpoint              = $bapCanonicalEndpoint
+        pacCloud                          = $pacCloud
+        dataverseSuffixes                 = $dataverseSuffixes
+        flowEndpoint                      = $flowEndpoint
+        powerPlatformSuffix               = $powerPlatformSuffix
+        allowedRegions                    = @($entry.allowedRegions | ForEach-Object { [string]$_ })
+        defaultRegions                    = @($entry.defaultRegions | ForEach-Object { [string]$_ })
+        powerPlatformVnetInjectionRegions = $vnetRegions
+    }
+}
+
+function Assert-AvdCloudBoundary {
+    param(
+        [Parameter(Mandatory)][pscustomobject]$CloudEnv,
+        [Parameter()][object]$EntraManifest,
+        [Parameter()][object]$AzureRaw,
+        [Parameter()][object]$AzureOutputs,
+        [Parameter()][bool]$IsDryRun = $false
+    )
+    $entraCloud = [string](Get-ContractPropertyValue -InputObject $EntraManifest -Name 'cloud')
+    $azureCloud = [string](Get-ContractPropertyValue -InputObject $AzureRaw -Name 'cloud')
+    if ([string]::IsNullOrWhiteSpace($azureCloud)) {
+        $azureCloud = [string](Get-ContractPropertyValue -InputObject $AzureOutputs -Name 'cloud')
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($entraCloud) -and $entraCloud -ne $CloudEnv.id) {
+        throw "Cloud mismatch: entra-manifest.json declares cloud '$entraCloud', which does not match target cloud '$($CloudEnv.id)'."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($azureCloud) -and $azureCloud -ne $CloudEnv.id) {
+        throw "Cloud mismatch: azure-outputs.json declares cloud '$azureCloud', which does not match target cloud '$($CloudEnv.id)'."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($entraCloud) -and -not [string]::IsNullOrWhiteSpace($azureCloud) -and $entraCloud -ne $azureCloud) {
+        throw "Cloud mismatch: entra-manifest.json cloud '$entraCloud' does not match azure-outputs.json cloud '$azureCloud'."
+    }
+
+    if (Get-Command -Name 'Get-AzContext' -ErrorAction SilentlyContinue) {
+        $azCtx = Get-AzContext -ErrorAction SilentlyContinue
+        if ($null -ne $azCtx -and $null -ne $azCtx.Environment -and -not [string]::IsNullOrWhiteSpace([string]$azCtx.Environment.Name)) {
+            if ([string]$azCtx.Environment.Name -ne $CloudEnv.psEnvironmentName) {
+                throw "Cloud mismatch: active Az PowerShell environment '$($azCtx.Environment.Name)' does not match expected '$($CloudEnv.psEnvironmentName)' for cloud '$($CloudEnv.id)'."
+            }
+        }
+    }
+
+    if (Get-Command -Name 'Get-MgContext' -ErrorAction SilentlyContinue) {
+        $mgCtx = Get-MgContext -ErrorAction SilentlyContinue
+        if ($null -ne $mgCtx -and -not [string]::IsNullOrWhiteSpace([string]$mgCtx.Environment)) {
+            if ([string]$mgCtx.Environment -ne $CloudEnv.entraEnvironment) {
+                throw "Cloud mismatch: active Microsoft Graph environment '$($mgCtx.Environment)' does not match expected '$($CloudEnv.entraEnvironment)' for cloud '$($CloudEnv.id)'."
+            }
+        }
+    }
+
+    if (-not $IsDryRun -and (Get-Command -Name 'az' -ErrorAction SilentlyContinue)) {
+        $activeAzCloudRaw = & az cloud show --query name -o tsv 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($activeAzCloudRaw)) {
+            $activeAzCloud = $activeAzCloudRaw.Trim()
+            if ($activeAzCloud -ne $CloudEnv.azCloudName) {
+                throw "Cloud mismatch: active Azure CLI cloud '$activeAzCloud' does not match expected '$($CloudEnv.azCloudName)' for cloud '$($CloudEnv.id)'."
+            }
+        }
+    }
 }
 
 function ConvertTo-PackedSolutionZip {
@@ -125,7 +253,7 @@ function ConvertTo-PackedSolutionZip {
     }
 }
 
-# 0. Parse input manifests
+# 0. Parse input manifests and resolve cloud profile
 if (-not (Test-Path -LiteralPath $EntraManifestPath)) {
     throw "Entra manifest file not found at '$EntraManifestPath'."
 }
@@ -141,6 +269,28 @@ $azureOutputs = if ($null -ne $azureRaw.PSObject.Properties['outputs'] -and $azu
 else {
     $azureRaw
 }
+
+if (-not $cloudExplicit) {
+    $manifestCloud = [string](Get-ContractPropertyValue -InputObject $entraManifest -Name 'cloud')
+    if ([string]::IsNullOrWhiteSpace($manifestCloud)) {
+        $manifestCloud = [string](Get-ContractPropertyValue -InputObject $azureRaw -Name 'cloud')
+    }
+    if ([string]::IsNullOrWhiteSpace($manifestCloud)) {
+        $manifestCloud = [string](Get-ContractPropertyValue -InputObject $azureOutputs -Name 'cloud')
+    }
+    if ($manifestCloud -in @('commercial', 'usgov')) {
+        $Cloud = $manifestCloud
+    }
+    elseif (Get-Command -Name 'Get-AzContext' -ErrorAction SilentlyContinue) {
+        $azCtx = Get-AzContext -ErrorAction SilentlyContinue
+        if ($null -ne $azCtx -and $null -ne $azCtx.Environment -and [string]$azCtx.Environment.Name -eq 'AzureUSGovernment') {
+            $Cloud = 'usgov'
+        }
+    }
+}
+
+$cloudEnv = Resolve-AvdCloudEnvironment -CloudProfile $Cloud
+Assert-AvdCloudBoundary -CloudEnv $cloudEnv -EntraManifest $entraManifest -AzureRaw $azureRaw -AzureOutputs $azureOutputs -IsDryRun $isDryRun
 
 $environment = [string](Get-ContractPropertyValue -InputObject $entraManifest -Name 'environment')
 if ([string]::IsNullOrWhiteSpace($environment)) {
@@ -175,7 +325,7 @@ if ([string]::IsNullOrWhiteSpace($avdUsersGroupId)) {
 
 $location = [string](Get-ContractPropertyValue -InputObject $azureOutputs -Name 'location')
 if ([string]::IsNullOrWhiteSpace($location)) {
-    $location = 'eastus'
+    $location = if ($Cloud -eq 'usgov') { [string]$cloudEnv.defaultRegions[0] } else { 'eastus' }
 }
 
 $resourceGroupName = [string](Get-ContractPropertyValue -InputObject $azureOutputs -Name 'resourceGroupName')
@@ -231,6 +381,8 @@ $stamp = "[avd-ops-$prefix-$environment]"
 $environmentDisplayName = "$stamp AVD Day-2 Automation"
 $dlpPolicyDisplayName = "$stamp AVD Day-2 Automation Strict DLP Policy"
 $enterprisePolicyName = "ep-avd-$prefix-$environment"
+$dataverseSuffix = [string]$cloudEnv.dataverseSuffixes[0]
+$dataverseUrl = "https://$prefix-$environment.$dataverseSuffix"
 
 $existingRunManifest = $null
 if (Test-Path -LiteralPath $RunManifestPath) {
@@ -242,7 +394,7 @@ if (Test-Path -LiteralPath $RunManifestPath) {
     }
 }
 
-if (-not $PSCmdlet.ShouldProcess($environmentDisplayName, 'Deploy Power Platform environment, VNet policy, strict DLP policy, and packed solution')) {
+if (-not $PSCmdlet.ShouldProcess($environmentDisplayName, "Deploy Power Platform environment ($Cloud), VNet policy, strict DLP policy, and packed solution")) {
     return
 }
 
@@ -252,9 +404,10 @@ if ($isDryRun) {
     $detectedSkus = @('FLOW_FREE')
 }
 else {
-    $skuResponseRaw = & az rest --method GET --url 'https://graph.microsoft.com/v1.0/subscribedSkus' -o json
+    $skuUrl = "$($cloudEnv.graphEndpoint)/v1.0/subscribedSkus"
+    $skuResponseRaw = & az rest --method GET --url $skuUrl -o json
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($skuResponseRaw)) {
-        throw 'Failed to query Microsoft Graph subscribedSkus during preflight check.'
+        throw "Failed to query Microsoft Graph subscribedSkus at '$skuUrl' during preflight check."
     }
     $skuResponse = $skuResponseRaw | ConvertFrom-Json
     foreach ($sku in @($skuResponse.value)) {
@@ -270,7 +423,10 @@ else {
 }
 
 # Step 2: Conditional Bicep VNet Injection (Microsoft.PowerPlatform/enterprisePolicies)
+$enterprisePolicyStatus = 'not-configured'
 $enterprisePolicyRecord = [ordered]@{
+    status            = 'not-configured'
+    reason            = $null
     deployed          = $false
     created           = $false
     name              = $enterprisePolicyName
@@ -279,7 +435,21 @@ $enterprisePolicyRecord = [ordered]@{
     delegatedSubnetId = $null
 }
 
-if (-not [string]::IsNullOrWhiteSpace($delegatedSubnetId)) {
+$vnetSupportedInRegion = ($location -in $cloudEnv.powerPlatformVnetInjectionRegions)
+if ($Cloud -eq 'usgov' -and -not $vnetSupportedInRegion) {
+    $enterprisePolicyStatus = 'skipped: unsupported-in-usgov'
+    $enterprisePolicyRecord = [ordered]@{
+        status            = 'skipped'
+        reason            = 'unsupported-in-usgov'
+        deployed          = $false
+        created           = $false
+        name              = $enterprisePolicyName
+        resourceGroupName = $resourceGroupName
+        id                = $null
+        delegatedSubnetId = $delegatedSubnetId
+    }
+}
+elseif (-not [string]::IsNullOrWhiteSpace($delegatedSubnetId)) {
     $bicepTemplatePath = Join-Path $repoRoot 'bicep/main.bicep'
     if (-not (Test-Path -LiteralPath $bicepTemplatePath)) {
         throw "Bicep template not found at '$bicepTemplatePath'."
@@ -292,7 +462,10 @@ if (-not [string]::IsNullOrWhiteSpace($delegatedSubnetId)) {
             $existingRunManifest.enterprisePolicy.name -eq $enterprisePolicyName
         )
         $epId = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/$resourceGroupName/providers/Microsoft.PowerPlatform/enterprisePolicies/$enterprisePolicyName"
+        $enterprisePolicyStatus = 'deployed'
         $enterprisePolicyRecord = [ordered]@{
+            status            = 'deployed'
+            reason            = $null
             deployed          = $true
             created           = (-not $alreadyExisted)
             name              = $enterprisePolicyName
@@ -308,13 +481,16 @@ if (-not [string]::IsNullOrWhiteSpace($delegatedSubnetId)) {
         $epId = & az deployment group create `
             --resource-group $resourceGroupName `
             --template-file $bicepTemplatePath `
-            --parameters enterprisePolicyName=$enterprisePolicyName location=$location delegatedSubnetId=$delegatedSubnetId `
+            --parameters cloud=$Cloud enterprisePolicyName=$enterprisePolicyName location=$location delegatedSubnetId=$delegatedSubnetId `
             --query 'properties.outputs.enterprisePolicyId.value' `
             -o tsv
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($epId)) {
             throw "Failed to deploy Bicep enterprise policy '$enterprisePolicyName' in resource group '$resourceGroupName'."
         }
+        $enterprisePolicyStatus = 'deployed'
         $enterprisePolicyRecord = [ordered]@{
+            status            = 'deployed'
+            reason            = $null
             deployed          = $true
             created           = (-not $epExisted)
             name              = $enterprisePolicyName
@@ -331,10 +507,16 @@ $dlpBaseline = Get-Content -LiteralPath $dlpBaselinePath -Raw -Encoding UTF8 | C
 $businessConnectors = @($dlpBaseline.businessConnectors)
 
 $environmentRecord = [ordered]@{
-    id          = $null
-    displayName = $environmentDisplayName
-    location    = $location
-    created     = $false
+    id                 = $null
+    displayName        = $environmentDisplayName
+    location           = $location
+    bapEndpoint        = $cloudEnv.bapEndpoint
+    dataverseUrl       = $dataverseUrl
+    dataverseSuffix    = $dataverseSuffix
+    flowEndpoint       = $cloudEnv.flowEndpoint
+    powerPlatformCloud = $cloudEnv.powerPlatformSuffix
+    pacCloud           = $cloudEnv.pacCloud
+    created            = $false
 }
 $dlpPolicyRecord = [ordered]@{
     id                              = $null
@@ -374,9 +556,11 @@ if ($isDryRun) {
     $dlpPolicyRecord.created = (-not $dlpExisted)
 }
 else {
-    $envListRaw = & az rest --method GET --url 'https://api.bap.microsoft.com/providers/Microsoft.BusinessAppPlatform/scopes/admin/environments?api-version=2023-06-01' -o json
+    $bapBase = $cloudEnv.bapEndpoint.TrimEnd('/')
+    $envListUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/environments?api-version=2023-06-01"
+    $envListRaw = & az rest --method GET --url $envListUrl -o json
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($envListRaw)) {
-        throw 'Failed to list Power Platform environments via BAP REST API.'
+        throw "Failed to list Power Platform environments via BAP REST API ('$envListUrl')."
     }
     $envList = $envListRaw | ConvertFrom-Json
     $matchedEnv = @($envList.value | Where-Object { $_.properties.displayName -eq $environmentDisplayName }) | Select-Object -First 1
@@ -386,24 +570,28 @@ else {
         $environmentRecord.created = $false
     }
     else {
+        $bapLocation = if ($Cloud -eq 'usgov') { 'usgovhigh' } else { 'unitedstates' }
         $createEnvBody = @{
-            location   = 'unitedstates'
+            location   = $bapLocation
             properties = @{
                 displayName    = $environmentDisplayName
                 environmentSku = 'Sandbox'
                 azureRegion    = $location
+                domainName     = "$prefix-$environment"
             }
         } | ConvertTo-Json -Depth 10 -Compress
-        $createdEnvRaw = & az rest --method POST --url 'https://api.bap.microsoft.com/providers/Microsoft.BusinessAppPlatform/environments?api-version=2023-06-01' --headers 'Content-Type=application/json' --body $createEnvBody -o json
+        $createEnvUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/environments?api-version=2023-06-01"
+        $createdEnvRaw = & az rest --method POST --url $createEnvUrl --headers 'Content-Type=application/json' --body $createEnvBody -o json
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($createdEnvRaw)) {
-            throw "Failed to create Power Platform environment '$environmentDisplayName'."
+            throw "Failed to create Power Platform environment '$environmentDisplayName' via '$createEnvUrl'."
         }
         $createdEnv = $createdEnvRaw | ConvertFrom-Json
         $environmentRecord.id = [string]$createdEnv.name
         $environmentRecord.created = $true
     }
 
-    $dlpListRaw = & az rest --method GET --url 'https://api.bap.microsoft.com/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies?api-version=2020-10-01' -o json
+    $dlpListUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies?api-version=2020-10-01"
+    $dlpListRaw = & az rest --method GET --url $dlpListUrl -o json
     $matchedDlp = $null
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($dlpListRaw)) {
         $dlpList = $dlpListRaw | ConvertFrom-Json
@@ -435,9 +623,10 @@ else {
                 )
             }
         } | ConvertTo-Json -Depth 10 -Compress
-        & az rest --method PUT --url "https://api.bap.microsoft.com/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies/$($policyNameGuid)?api-version=2020-10-01" --headers 'Content-Type=application/json' --body $dlpBody -o json | Out-Null
+        $putDlpUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies/$($policyNameGuid)?api-version=2020-10-01"
+        & az rest --method PUT --url $putDlpUrl --headers 'Content-Type=application/json' --body $dlpBody -o json | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create DLP policy '$dlpPolicyDisplayName'."
+            throw "Failed to create DLP policy '$dlpPolicyDisplayName' via '$putDlpUrl'."
         }
         $dlpPolicyRecord.id = $policyNameGuid
         $dlpPolicyRecord.created = $true
@@ -476,6 +665,10 @@ $solutionExisted = (
 if (-not $isDryRun) {
     $pacCmd = Get-Command -Name 'pac' -ErrorAction SilentlyContinue
     if ($null -ne $pacCmd) {
+        & pac auth create --cloud $cloudEnv.pacCloud --environment $dataverseUrl
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to authenticate pac CLI for cloud '$($cloudEnv.pacCloud)' against '$dataverseUrl'."
+        }
         & pac solution import --path $PackedSolutionZipPath --environment $environmentRecord.id --settings-file $settingsFilePath --publish-changes --async
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to import solution '$PackedSolutionZipPath' into environment '$($environmentRecord.id)' via pac CLI."
@@ -503,9 +696,18 @@ if (-not [string]::IsNullOrWhiteSpace($outputParent) -and -not (Test-Path -Liter
 
 $handoffManifest = [ordered]@{
     schema                       = 'avd-ops-power-platform-manifest/v1'
+    cloud                        = $Cloud
     environment                  = $environment
     powerPlatformEnvironmentName = $environmentDisplayName
     dlpPolicyName                = $dlpPolicyDisplayName
+    enterprisePolicyStatus       = $enterprisePolicyStatus
+    vnetInjectionStatus          = $enterprisePolicyStatus
+    enterprisePolicy             = [ordered]@{
+        status = [string]$enterprisePolicyRecord.status
+        reason = $enterprisePolicyRecord.reason
+        id     = $enterprisePolicyRecord.id
+        name   = [string]$enterprisePolicyRecord.name
+    }
     activeWorkflows              = $activeWorkflows
 }
 $handoffManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
@@ -517,6 +719,7 @@ if (-not [string]::IsNullOrWhiteSpace($runParent) -and -not (Test-Path -LiteralP
 
 $runManifest = [ordered]@{
     schema                   = 'avd-ops-power-platform-run-manifest/v1'
+    cloud                    = $Cloud
     stamp                    = $stamp
     environment              = $environment
     prefix                   = $prefix
@@ -555,3 +758,4 @@ if ($null -ne $pythonExe) {
         throw "Contract validation failed for '$OutputPath'."
     }
 }
+

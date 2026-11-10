@@ -1,5 +1,5 @@
 # Contracts for avd-power-platform
 
-Consumes `entra-manifest.json` and `azure-outputs.json` and produces `power-platform-manifest.json` (environment ID, DLP policy state, and active workflow solution versions).
+Consumes `entra-manifest.json`, `azure-outputs.json`, and the pinned cloud environment contract `contracts/cloud-environments.json` (`C26`, `avd-cloud-environments/v1`), and produces `power-platform-manifest.json` (cloud profile `commercial` | `usgov`, environment ID/name, DLP policy state, VNet enterprise policy status `deployed` | `skipped: unsupported-in-usgov`, and active workflow solution versions).
 
-See [avd-ops decision 0009](https://avd-ops.dev/docs/decisions/0009-split-landing-zone-into-five-control-planes.html).
+See [avd-ops decision 0009](https://avd-ops.dev/docs/decisions/0009-split-landing-zone-into-five-control-planes.html) and [avd-ops decision 0013](https://avd-ops.dev/docs/decisions/0013-azure-us-government-and-gcc-high-support.html).
