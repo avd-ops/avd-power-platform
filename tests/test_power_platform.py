@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+PWSH_BIN = shutil.which("pwsh") or str(Path.home() / ".local" / "bin" / "pwsh")
 sys.path.insert(0, str(ROOT / "scripts"))
 import validate  # noqa: E402
 
@@ -46,9 +48,9 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def _run_deploy(self) -> subprocess.CompletedProcess[str]:
+    def _run_deploy(self, cloud: str | None = None) -> subprocess.CompletedProcess[str]:
         cmd = [
-            "pwsh",
+            PWSH_BIN,
             "-NoProfile",
             "-File",
             str(ROOT / "scripts" / "Deploy-AvdPowerPlatform.ps1"),
@@ -65,11 +67,15 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
             "-DryRun",
             "-Confirm:$false",
         ]
+        if cloud is not None:
+            cmd.extend(["-Cloud", cloud])
         return subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, check=False)
 
-    def _run_teardown(self, discard_last_copy: bool = False) -> subprocess.CompletedProcess[str]:
+    def _run_teardown(
+        self, discard_last_copy: bool = False, cloud: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         cmd = [
-            "pwsh",
+            PWSH_BIN,
             "-NoProfile",
             "-File",
             str(ROOT / "scripts" / "Remove-AvdPowerPlatform.ps1"),
@@ -78,9 +84,21 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
             "-DryRun",
             "-Confirm:$false",
         ]
+        if cloud is not None:
+            cmd.extend(["-Cloud", cloud])
         if discard_last_copy:
             cmd.append("-DiscardLastCopy")
         return subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, check=False)
+
+    def test_usgov_powershell_pester_suite(self) -> None:
+        res = subprocess.run(
+            [PWSH_BIN, "-NoProfile", "-File", str(ROOT / "tests" / "UsGovCloud.Tests.ps1")],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(res.returncode, 0, msg=f"{res.stderr}\n{res.stdout}")
 
     def test_repo_validation_and_schema_guard(self) -> None:
         errors = validate.validate_repo()
@@ -92,6 +110,8 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
                 {
                     "schema": "wrong-schema",
                     "environment": "staging",
+                    "cloud": "invalid-cloud",
+                    "enterprisePolicyStatus": "invalid-status",
                     "powerPlatformEnvironmentName": "",
                     "extraField": True,
                 }
@@ -101,7 +121,17 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
         schema_errors = validate.validate_manifest_against_schema(
             bad_manifest, ROOT / "contracts" / "power-platform-manifest.schema.json"
         )
-        self.assertGreaterEqual(len(schema_errors), 4)
+        self.assertGreaterEqual(len(schema_errors), 5)
+
+    def test_c26_cloud_environments_contract_pinned(self) -> None:
+        c26_path = ROOT / "contracts" / "cloud-environments.json"
+        self.assertTrue(c26_path.is_file())
+        c26 = json.loads(c26_path.read_text(encoding="utf-8-sig"))
+        self.assertEqual(c26["schema"], "avd-cloud-environments/v1")
+        self.assertEqual(c26["clouds"]["commercial"]["powerPlatform"]["bapEndpoint"], "https://api.bap.microsoft.com")
+        self.assertEqual(c26["clouds"]["commercial"]["powerPlatform"]["pacCloud"], "Public")
+        self.assertEqual(c26["clouds"]["usgov"]["powerPlatform"]["pacCloud"], "UsGovHigh")
+        self.assertIn("crm9.dynamics.com", c26["clouds"]["usgov"]["powerPlatform"]["dataverseSuffixes"])
 
     def test_solution_packing_and_env_var_injection_without_vnet(self) -> None:
         host_pool_arm_id = (
@@ -143,6 +173,7 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
 
         manifest = json.loads(self.output_manifest_path.read_text(encoding="utf-8-sig"))
         self.assertEqual(manifest["schema"], "avd-ops-power-platform-manifest/v1")
+        self.assertEqual(manifest["cloud"], "commercial")
         self.assertEqual(manifest["environment"], "dev")
         self.assertEqual(manifest["powerPlatformEnvironmentName"], "[avd-ops-avd-dev] AVD Day-2 Automation")
         self.assertEqual(manifest["dlpPolicyName"], "[avd-ops-avd-dev] AVD Day-2 Automation Strict DLP Policy")
@@ -155,6 +186,7 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
         )
 
         run_manifest = json.loads(self.run_manifest_path.read_text(encoding="utf-8-sig"))
+        self.assertEqual(run_manifest["cloud"], "commercial")
         self.assertFalse(run_manifest["enterprisePolicy"]["deployed"])
         self.assertFalse(run_manifest["enterprisePolicy"]["created"])
         self.assertTrue(run_manifest["powerPlatformEnvironment"]["created"])
@@ -232,6 +264,9 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
         # First run: all resources created = True
         res1 = self._run_deploy()
         self.assertEqual(res1.returncode, 0, msg=res1.stderr)
+        manifest1 = json.loads(self.output_manifest_path.read_text(encoding="utf-8-sig"))
+        self.assertEqual(manifest1["enterprisePolicyStatus"], "deployed")
+        self.assertEqual(manifest1["vnetInjectionStatus"], "deployed")
         run1 = json.loads(self.run_manifest_path.read_text(encoding="utf-8-sig"))
         self.assertTrue(run1["enterprisePolicy"]["deployed"])
         self.assertTrue(run1["enterprisePolicy"]["created"])
@@ -272,6 +307,76 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
         self.assertIn("powerPlatformEnvironment:[avd-ops-avd-dev] AVD Day-2 Automation", removed)
         self.assertIn("enterprisePolicy:ep-avd-avd-dev", removed)
 
+    def test_usgov_gcc_high_routing_vnet_fallback_and_cloud_mismatch_guard(self) -> None:
+        self.entra_manifest["cloud"] = "usgov"
+        self.entra_manifest_path.write_text(json.dumps(self.entra_manifest, indent=2), encoding="utf-8")
+
+        subnet_id = (
+            "/subscriptions/00000000-0000-0000-0000-000000000000"
+            "/resourceGroups/rg-avd-net-dev/providers/Microsoft.Network/virtualNetworks/vnet-avd-dev"
+            "/subnets/snet-powerplatform"
+        )
+        azure_outputs = {
+            "schema": "avd-ops-azure-outputs/v1",
+            "cloud": "usgov",
+            "environment": "dev",
+            "location": "usgovvirginia",
+            "resourceGroupName": "rg-avd-cp-dev",
+            "hostPoolArmId": (
+                "/subscriptions/00000000-0000-0000-0000-000000000000"
+                "/resourceGroups/rg-avd-cp-dev/providers/Microsoft.DesktopVirtualization/hostPools/hp-avd-dev"
+            ),
+            "powerPlatformDelegatedSubnetId": subnet_id,
+        }
+        self.azure_outputs_path.write_text(json.dumps(azure_outputs, indent=2), encoding="utf-8")
+
+        # Cross-cloud mismatch must fail closed before emitting any manifest
+        mismatch_res = self._run_deploy(cloud="commercial")
+        self.assertNotEqual(mismatch_res.returncode, 0)
+        self.assertIn("Cloud mismatch", mismatch_res.stderr + mismatch_res.stdout)
+        self.assertFalse(self.output_manifest_path.is_file())
+
+        # Valid usgov run skips VNet enterprisePolicy in usgovvirginia and stamps skipped: unsupported-in-usgov
+        usgov_res = self._run_deploy(cloud="usgov")
+        self.assertEqual(usgov_res.returncode, 0, msg=f"{usgov_res.stderr}\n{usgov_res.stdout}")
+
+        manifest = json.loads(self.output_manifest_path.read_text(encoding="utf-8-sig"))
+        self.assertEqual(manifest["cloud"], "usgov")
+        self.assertEqual(manifest["enterprisePolicyStatus"], "skipped: unsupported-in-usgov")
+        self.assertEqual(manifest["vnetInjectionStatus"], "skipped: unsupported-in-usgov")
+        self.assertEqual(manifest["enterprisePolicy"]["status"], "skipped")
+        self.assertEqual(manifest["enterprisePolicy"]["reason"], "unsupported-in-usgov")
+
+        run_manifest = json.loads(self.run_manifest_path.read_text(encoding="utf-8-sig"))
+        self.assertEqual(run_manifest["cloud"], "usgov")
+        self.assertFalse(run_manifest["enterprisePolicy"]["deployed"])
+        self.assertEqual(run_manifest["enterprisePolicy"]["status"], "skipped")
+        self.assertEqual(run_manifest["enterprisePolicy"]["reason"], "unsupported-in-usgov")
+        self.assertEqual(
+            run_manifest["powerPlatformEnvironment"]["bapEndpoint"], "https://gov.api.bap.microsoft.us"
+        )
+        self.assertEqual(run_manifest["powerPlatformEnvironment"]["dataverseSuffix"], "crm9.dynamics.com")
+        self.assertEqual(
+            run_manifest["powerPlatformEnvironment"]["dataverseUrl"], "https://avd-dev.crm9.dynamics.com"
+        )
+        self.assertEqual(run_manifest["powerPlatformEnvironment"]["flowEndpoint"], "https://gov.flow.microsoft.us")
+        self.assertEqual(run_manifest["powerPlatformEnvironment"]["powerPlatformCloud"], "High.powerplatform.us")
+        self.assertEqual(run_manifest["powerPlatformEnvironment"]["pacCloud"], "UsGovHigh")
+
+        # Teardown with mismatched -Cloud must fail closed
+        mismatch_td = self._run_teardown(discard_last_copy=True, cloud="commercial")
+        self.assertNotEqual(mismatch_td.returncode, 0)
+        self.assertIn("Cloud mismatch", mismatch_td.stderr + mismatch_td.stdout)
+
+        # Teardown with matching -Cloud usgov succeeds and removes environment + DLP policy (no enterprisePolicy deployed)
+        ok_td = self._run_teardown(discard_last_copy=True, cloud="usgov")
+        self.assertEqual(ok_td.returncode, 0, msg=ok_td.stderr)
+        removed = ok_td.stdout.strip().split(",")
+        self.assertIn("dlpPolicy:[avd-ops-avd-dev] AVD Day-2 Automation Strict DLP Policy", removed)
+        self.assertIn("powerPlatformEnvironment:[avd-ops-avd-dev] AVD Day-2 Automation", removed)
+        self.assertNotIn("enterprisePolicy:ep-avd-avd-dev", removed)
+
 
 if __name__ == "__main__":
     unittest.main()
+

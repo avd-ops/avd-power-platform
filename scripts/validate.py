@@ -51,6 +51,35 @@ def validate_manifest_against_schema(manifest_path: Path, schema_path: Path) -> 
         if data["environment"] not in allowed_envs:
             errs.append(f"{manifest_path}: environment must be one of {allowed_envs}, got '{data['environment']}'")
 
+    if "cloud" in data:
+        allowed_clouds = props.get("cloud", {}).get("enum", ["commercial", "usgov"])
+        if data["cloud"] not in allowed_clouds:
+            errs.append(f"{manifest_path}: cloud must be one of {allowed_clouds}, got '{data['cloud']}'")
+
+    for status_field in ("enterprisePolicyStatus", "vnetInjectionStatus"):
+        if status_field in data:
+            allowed_statuses = props.get(status_field, {}).get(
+                "enum", ["deployed", "not-configured", "skipped: unsupported-in-usgov"]
+            )
+            if data[status_field] not in allowed_statuses:
+                errs.append(
+                    f"{manifest_path}: {status_field} must be one of {allowed_statuses}, got '{data[status_field]}'"
+                )
+
+    if "enterprisePolicy" in data:
+        ep = data["enterprisePolicy"]
+        if not isinstance(ep, dict):
+            errs.append(f"{manifest_path}: 'enterprisePolicy' must be an object")
+        else:
+            ep_props = props.get("enterprisePolicy", {}).get("properties", {})
+            allowed_ep_status = ep_props.get("status", {}).get(
+                "enum", ["deployed", "not-configured", "skipped", "skipped: unsupported-in-usgov"]
+            )
+            if "status" in ep and ep["status"] not in allowed_ep_status:
+                errs.append(
+                    f"{manifest_path}: enterprisePolicy.status must be one of {allowed_ep_status}, got '{ep['status']}'"
+                )
+
     for str_field in ("powerPlatformEnvironmentName", "dlpPolicyName"):
         if str_field in data and (not isinstance(data[str_field], str) or not data[str_field].strip()):
             errs.append(f"{manifest_path}: '{str_field}' must be a non-empty string")
@@ -68,6 +97,28 @@ def validate_repo(manifest_arg: str | None = None) -> list[str]:
     schema_path = ROOT / "contracts" / "power-platform-manifest.schema.json"
     if not schema_path.is_file():
         errors.append("contracts/power-platform-manifest.schema.json: missing schema file")
+
+    c26_path = ROOT / "contracts" / "cloud-environments.json"
+    if not c26_path.is_file():
+        errors.append("contracts/cloud-environments.json: missing C26 cloud environments contract")
+    else:
+        try:
+            c26_data = json.loads(c26_path.read_text(encoding="utf-8-sig"))
+            if c26_data.get("schema") != "avd-cloud-environments/v1":
+                errors.append("contracts/cloud-environments.json: schema must be 'avd-cloud-environments/v1'")
+            clouds = c26_data.get("clouds", {})
+            for req_cloud in ("commercial", "usgov"):
+                if req_cloud not in clouds:
+                    errors.append(f"contracts/cloud-environments.json: missing cloud profile '{req_cloud}'")
+            usgov_pp = clouds.get("usgov", {}).get("powerPlatform", {})
+            if usgov_pp.get("pacCloud") != "UsGovHigh":
+                errors.append("contracts/cloud-environments.json: usgov.powerPlatform.pacCloud must be 'UsGovHigh'")
+            if "crm9.dynamics.com" not in usgov_pp.get("dataverseSuffixes", []):
+                errors.append(
+                    "contracts/cloud-environments.json: usgov.powerPlatform.dataverseSuffixes must include 'crm9.dynamics.com'"
+                )
+        except Exception as exc:
+            errors.append(f"contracts/cloud-environments.json: invalid JSON: {exc}")
 
     for jf in ROOT.rglob("*.json"):
         if any(part in SKIP_DIRS for part in jf.parts):
@@ -119,6 +170,22 @@ def validate_repo(manifest_arg: str | None = None) -> list[str]:
         if b"\r" in sh_file.read_bytes():
             errors.append(f"{sh_file.relative_to(ROOT)}: contains CRLF line endings; must use LF")
 
+    # Validate PowerShell scripts do not hardcode commercial Graph, BAP, or ARM endpoints
+    forbidden_ps_literals = (
+        "management.azure.com",
+        "graph.microsoft.com",
+        "login.microsoftonline.com",
+        "api.bap.microsoft.com",
+        ".windows.net",
+    )
+    for ps_file in (ROOT / "scripts").rglob("*.ps*1"):
+        ps_text = ps_file.read_text(encoding="utf-8-sig")
+        for lit in forbidden_ps_literals:
+            if lit in ps_text:
+                errors.append(
+                    f"{ps_file.relative_to(ROOT)}: hardcoded commercial endpoint '{lit}' outside contracts/cloud-environments.json"
+                )
+
     # Validate leak rules
     for tf in ROOT.rglob("*"):
         if any(part in SKIP_DIRS for part in tf.parts) or not tf.is_file():
@@ -157,3 +224,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

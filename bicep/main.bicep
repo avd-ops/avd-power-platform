@@ -1,6 +1,13 @@
 // Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
 targetScope = 'resourceGroup'
 
+@description('Target cloud environment profile (commercial or usgov).')
+@allowed([
+  'commercial'
+  'usgov'
+])
+param cloud string = 'commercial'
+
 @description('Name of the Power Platform VNet enterprise policy.')
 param enterprisePolicyName string = 'ep-avd-powerplatform'
 
@@ -10,7 +17,9 @@ param location string = resourceGroup().location
 @description('Resource ID of the delegated subnet in avd-azure.')
 param delegatedSubnetId string
 
-resource vnetPolicy 'Microsoft.PowerPlatform/enterprisePolicies@2020-10-30-preview' = {
+var vnetInjectionSupported = (cloud == 'commercial')
+
+resource vnetPolicy 'Microsoft.PowerPlatform/enterprisePolicies@2020-10-30-preview' = if (vnetInjectionSupported) {
   name: enterprisePolicyName
   location: location
   kind: 'NetworkInjection'
@@ -28,4 +37,7 @@ resource vnetPolicy 'Microsoft.PowerPlatform/enterprisePolicies@2020-10-30-previ
   }
 }
 
-output enterprisePolicyId string = vnetPolicy.id
+output cloud string = cloud
+output enterprisePolicyStatus string = vnetInjectionSupported ? 'deployed' : 'skipped: unsupported-in-usgov'
+output enterprisePolicyId string = vnetInjectionSupported ? vnetPolicy.id : ''
+
