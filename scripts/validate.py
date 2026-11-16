@@ -113,9 +113,17 @@ def validate_repo(manifest_arg: str | None = None) -> list[str]:
             usgov_pp = clouds.get("usgov", {}).get("powerPlatform", {})
             if usgov_pp.get("pacCloud") != "UsGovHigh":
                 errors.append("contracts/cloud-environments.json: usgov.powerPlatform.pacCloud must be 'UsGovHigh'")
-            if "crm9.dynamics.com" not in usgov_pp.get("dataverseSuffixes", []):
+            if "crm.microsoftdynamics.us" not in usgov_pp.get("dataverseSuffixes", []):
                 errors.append(
-                    "contracts/cloud-environments.json: usgov.powerPlatform.dataverseSuffixes must include 'crm9.dynamics.com'"
+                    "contracts/cloud-environments.json: usgov.powerPlatform.dataverseSuffixes must include 'crm.microsoftdynamics.us'"
+                )
+            if usgov_pp.get("bapEndpoint") != "https://high.api.bap.microsoft.us":
+                errors.append(
+                    "contracts/cloud-environments.json: usgov.powerPlatform.bapEndpoint must be 'https://high.api.bap.microsoft.us'"
+                )
+            if usgov_pp.get("flowEndpoint") != "https://high.flow.microsoft.us":
+                errors.append(
+                    "contracts/cloud-environments.json: usgov.powerPlatform.flowEndpoint must be 'https://high.flow.microsoft.us'"
                 )
         except Exception as exc:
             errors.append(f"contracts/cloud-environments.json: invalid JSON: {exc}")

@@ -65,27 +65,12 @@ function Resolve-AvdCloudEnvironment {
         throw "Cloud profile '$CloudProfile' not found in '$ContractPath'."
     }
 
-    $bapEndpoint = if ($CloudProfile -eq 'usgov') {
-        'https://gov.api.bap.microsoft.us'
-    }
-    else {
-        [string]$entry.powerPlatform.bapEndpoint
-    }
-    $bapCanonicalEndpoint = [string]$entry.powerPlatform.bapEndpoint
+    $bapEndpoint = [string]$entry.powerPlatform.bapEndpoint
+    $bapCanonicalEndpoint = $bapEndpoint
     $pacCloud = [string]$entry.powerPlatform.pacCloud
     $dataverseSuffixes = @($entry.powerPlatform.dataverseSuffixes | ForEach-Object { [string]$_ })
-    $flowEndpoint = if ($CloudProfile -eq 'usgov') {
-        'https://gov.flow.microsoft.us'
-    }
-    else {
-        'https://flow.microsoft.com'
-    }
-    $powerPlatformSuffix = if ($CloudProfile -eq 'usgov') {
-        'High.powerplatform.us'
-    }
-    else {
-        'powerplatform.com'
-    }
+    $flowEndpoint = [string]$entry.powerPlatform.flowEndpoint
+    $powerPlatformSuffix = [string]$entry.powerPlatform.powerPlatformSuffix
 
     $vnetRegions = @()
     if ($null -ne $entry.PSObject.Properties['capabilities'] -and $null -ne $entry.capabilities) {
@@ -558,7 +543,7 @@ if ($isDryRun) {
 else {
     $bapBase = $cloudEnv.bapEndpoint.TrimEnd('/')
     $envListUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/environments?api-version=2023-06-01"
-    $envListRaw = & az rest --method GET --url $envListUrl -o json
+    $envListRaw = & az rest --method GET --url $envListUrl --resource $bapBase -o json
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($envListRaw)) {
         throw "Failed to list Power Platform environments via BAP REST API ('$envListUrl')."
     }
@@ -581,7 +566,7 @@ else {
             }
         } | ConvertTo-Json -Depth 10 -Compress
         $createEnvUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/environments?api-version=2023-06-01"
-        $createdEnvRaw = & az rest --method POST --url $createEnvUrl --headers 'Content-Type=application/json' --body $createEnvBody -o json
+        $createdEnvRaw = & az rest --method POST --url $createEnvUrl --resource $bapBase --headers 'Content-Type=application/json' --body $createEnvBody -o json
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($createdEnvRaw)) {
             throw "Failed to create Power Platform environment '$environmentDisplayName' via '$createEnvUrl'."
         }
@@ -591,7 +576,7 @@ else {
     }
 
     $dlpListUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies?api-version=2020-10-01"
-    $dlpListRaw = & az rest --method GET --url $dlpListUrl -o json
+    $dlpListRaw = & az rest --method GET --url $dlpListUrl --resource $bapBase -o json
     $matchedDlp = $null
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($dlpListRaw)) {
         $dlpList = $dlpListRaw | ConvertFrom-Json
@@ -624,7 +609,7 @@ else {
             }
         } | ConvertTo-Json -Depth 10 -Compress
         $putDlpUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies/$($policyNameGuid)?api-version=2020-10-01"
-        & az rest --method PUT --url $putDlpUrl --headers 'Content-Type=application/json' --body $dlpBody -o json | Out-Null
+        & az rest --method PUT --url $putDlpUrl --resource $bapBase --headers 'Content-Type=application/json' --body $dlpBody -o json | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to create DLP policy '$dlpPolicyDisplayName' via '$putDlpUrl'."
         }
