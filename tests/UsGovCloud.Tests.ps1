@@ -142,7 +142,7 @@ Describe 'C26 Cloud Environment Contract and Zero-Commercial-URI AST Guard' {
         $c26.clouds.commercial.powerPlatform.bapEndpoint | Should -Be 'https://api.bap.microsoft.com'
         $c26.clouds.commercial.powerPlatform.pacCloud | Should -Be 'Public'
         $c26.clouds.usgov.powerPlatform.pacCloud | Should -Be 'UsGovHigh'
-        $c26.clouds.usgov.powerPlatform.dataverseSuffixes | Should -Contain 'crm9.dynamics.com'
+        $c26.clouds.usgov.powerPlatform.dataverseSuffixes | Should -Contain 'crm.microsoftdynamics.us'
 
         if (Test-Path -LiteralPath $script:assessC26Path) {
             $localHash = (Get-FileHash -LiteralPath $script:c26Path -Algorithm SHA256).Hash
@@ -243,15 +243,15 @@ Describe 'US Government (GCC High) Deployment, VNet Parity Fallback, and Live CL
         $run.enterprisePolicy.deployed | Should -BeFalse
         $run.enterprisePolicy.status | Should -Be 'skipped'
         $run.enterprisePolicy.reason | Should -Be 'unsupported-in-usgov'
-        $run.powerPlatformEnvironment.bapEndpoint | Should -Be 'https://gov.api.bap.microsoft.us'
-        $run.powerPlatformEnvironment.dataverseSuffix | Should -Be 'crm9.dynamics.com'
-        $run.powerPlatformEnvironment.dataverseUrl | Should -Be 'https://avd-prod.crm9.dynamics.com'
-        $run.powerPlatformEnvironment.flowEndpoint | Should -Be 'https://gov.flow.microsoft.us'
+        $run.powerPlatformEnvironment.bapEndpoint | Should -Be 'https://high.api.bap.microsoft.us'
+        $run.powerPlatformEnvironment.dataverseSuffix | Should -Be 'crm.microsoftdynamics.us'
+        $run.powerPlatformEnvironment.dataverseUrl | Should -Be 'https://avd-prod.crm.microsoftdynamics.us'
+        $run.powerPlatformEnvironment.flowEndpoint | Should -Be 'https://high.flow.microsoft.us'
         $run.powerPlatformEnvironment.powerPlatformCloud | Should -Be 'High.powerplatform.us'
         $run.powerPlatformEnvironment.pacCloud | Should -Be 'UsGovHigh'
     }
 
-    It 'routes live az rest calls to gov.api.bap.microsoft.us and graph.microsoft.us and authenticates pac with --cloud UsGovHigh' {
+    It 'routes live az rest calls to high.api.bap.microsoft.us with --resource and graph.microsoft.us and authenticates pac with --cloud UsGovHigh' {
         $global:capturedAzCalls = [System.Collections.Generic.List[string]]::new()
         $global:capturedPacCalls = [System.Collections.Generic.List[string]]::new()
 
@@ -298,12 +298,12 @@ Describe 'US Government (GCC High) Deployment, VNet Parity Fallback, and Live CL
                 -Confirm:$false
 
             ($global:capturedAzCalls | Where-Object { $_ -like '*https://graph.microsoft.us/v1.0/subscribedSkus*' }) | Should -Not -BeNullOrEmpty
-            ($global:capturedAzCalls | Where-Object { $_ -like '*https://gov.api.bap.microsoft.us/providers/Microsoft.BusinessAppPlatform/environments*' }) | Should -Not -BeNullOrEmpty
-            ($global:capturedAzCalls | Where-Object { $_ -like '*https://gov.api.bap.microsoft.us/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies*' }) | Should -Not -BeNullOrEmpty
+            ($global:capturedAzCalls | Where-Object { $_ -like '*https://high.api.bap.microsoft.us/providers/Microsoft.BusinessAppPlatform/environments*--resource https://high.api.bap.microsoft.us*' }) | Should -Not -BeNullOrEmpty
+            ($global:capturedAzCalls | Where-Object { $_ -like '*https://high.api.bap.microsoft.us/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies*--resource https://high.api.bap.microsoft.us*' }) | Should -Not -BeNullOrEmpty
             ($global:capturedAzCalls | Where-Object { $_ -like '*deployment group create*' }) | Should -BeNullOrEmpty
             ($global:capturedAzCalls | Where-Object { $_ -like '*.microsoft.com*' -or $_ -like '*.azure.com*' }) | Should -BeNullOrEmpty
 
-            ($global:capturedPacCalls | Where-Object { $_ -like 'auth create --cloud UsGovHigh --environment https://avd-prod.crm9.dynamics.com*' }) | Should -Not -BeNullOrEmpty
+            ($global:capturedPacCalls | Where-Object { $_ -like 'auth create --cloud UsGovHigh --environment https://avd-prod.crm.microsoftdynamics.us*' }) | Should -Not -BeNullOrEmpty
             ($global:capturedPacCalls | Where-Object { $_ -like 'solution import*--environment env-usgov-001*' }) | Should -Not -BeNullOrEmpty
         }
         finally {

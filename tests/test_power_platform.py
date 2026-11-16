@@ -131,7 +131,9 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
         self.assertEqual(c26["clouds"]["commercial"]["powerPlatform"]["bapEndpoint"], "https://api.bap.microsoft.com")
         self.assertEqual(c26["clouds"]["commercial"]["powerPlatform"]["pacCloud"], "Public")
         self.assertEqual(c26["clouds"]["usgov"]["powerPlatform"]["pacCloud"], "UsGovHigh")
-        self.assertIn("crm9.dynamics.com", c26["clouds"]["usgov"]["powerPlatform"]["dataverseSuffixes"])
+        self.assertIn("crm.microsoftdynamics.us", c26["clouds"]["usgov"]["powerPlatform"]["dataverseSuffixes"])
+        self.assertEqual(c26["clouds"]["usgov"]["powerPlatform"]["bapEndpoint"], "https://high.api.bap.microsoft.us")
+        self.assertEqual(c26["clouds"]["usgov"]["powerPlatform"]["flowEndpoint"], "https://high.flow.microsoft.us")
 
     def test_solution_packing_and_env_var_injection_without_vnet(self) -> None:
         host_pool_arm_id = (
@@ -353,13 +355,13 @@ class PowerPlatformControlPlaneTests(unittest.TestCase):
         self.assertEqual(run_manifest["enterprisePolicy"]["status"], "skipped")
         self.assertEqual(run_manifest["enterprisePolicy"]["reason"], "unsupported-in-usgov")
         self.assertEqual(
-            run_manifest["powerPlatformEnvironment"]["bapEndpoint"], "https://gov.api.bap.microsoft.us"
+            run_manifest["powerPlatformEnvironment"]["bapEndpoint"], "https://high.api.bap.microsoft.us"
         )
-        self.assertEqual(run_manifest["powerPlatformEnvironment"]["dataverseSuffix"], "crm9.dynamics.com")
+        self.assertEqual(run_manifest["powerPlatformEnvironment"]["dataverseSuffix"], "crm.microsoftdynamics.us")
         self.assertEqual(
-            run_manifest["powerPlatformEnvironment"]["dataverseUrl"], "https://avd-dev.crm9.dynamics.com"
+            run_manifest["powerPlatformEnvironment"]["dataverseUrl"], "https://avd-dev.crm.microsoftdynamics.us"
         )
-        self.assertEqual(run_manifest["powerPlatformEnvironment"]["flowEndpoint"], "https://gov.flow.microsoft.us")
+        self.assertEqual(run_manifest["powerPlatformEnvironment"]["flowEndpoint"], "https://high.flow.microsoft.us")
         self.assertEqual(run_manifest["powerPlatformEnvironment"]["powerPlatformCloud"], "High.powerplatform.us")
         self.assertEqual(run_manifest["powerPlatformEnvironment"]["pacCloud"], "UsGovHigh")
 

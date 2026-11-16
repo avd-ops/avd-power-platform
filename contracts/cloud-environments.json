@@ -29,6 +29,8 @@
       },
       "powerPlatform": {
         "bapEndpoint": "https://api.bap.microsoft.com",
+        "flowEndpoint": "https://flow.microsoft.com",
+        "powerPlatformSuffix": "powerplatform.com",
         "pacCloud": "Public",
         "dataverseSuffixes": [
           "crm.dynamics.com",
@@ -105,9 +107,11 @@
       },
       "powerPlatform": {
         "bapEndpoint": "https://high.api.bap.microsoft.us",
+        "flowEndpoint": "https://high.flow.microsoft.us",
+        "powerPlatformSuffix": "High.powerplatform.us",
         "pacCloud": "UsGovHigh",
         "dataverseSuffixes": [
-          "crm9.dynamics.com"
+          "crm.microsoftdynamics.us"
         ]
       },
       "privateDnsZones": {
@@ -168,6 +172,8 @@
       },
       "powerPlatform": {
         "bapEndpoint": "https://api.bap.microsoft.com",
+        "flowEndpoint": "https://flow.microsoft.com",
+        "powerPlatformSuffix": "powerplatform.com",
         "pacCloud": "Public",
         "dataverseSuffixes": [
           "crm.dynamics.com",
@@ -243,9 +249,11 @@
       },
       "powerPlatform": {
         "bapEndpoint": "https://high.api.bap.microsoft.us",
+        "flowEndpoint": "https://high.flow.microsoft.us",
+        "powerPlatformSuffix": "High.powerplatform.us",
         "pacCloud": "UsGovHigh",
         "dataverseSuffixes": [
-          "crm9.dynamics.com"
+          "crm.microsoftdynamics.us"
         ]
       },
       "privateDnsZones": {

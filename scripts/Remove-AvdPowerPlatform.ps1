@@ -33,12 +33,7 @@ function Resolve-AvdCloudEnvironment {
         throw "Cloud profile '$CloudProfile' not found in '$ContractPath'."
     }
 
-    $bapEndpoint = if ($CloudProfile -eq 'usgov') {
-        'https://gov.api.bap.microsoft.us'
-    }
-    else {
-        [string]$entry.powerPlatform.bapEndpoint
-    }
+    $bapEndpoint = [string]$entry.powerPlatform.bapEndpoint
 
     return [pscustomobject]@{
         id                = $CloudProfile
@@ -107,7 +102,7 @@ if ($null -ne $runManifest.PSObject.Properties['dlpPolicy'] -and $null -ne $runM
         if ($PSCmdlet.ShouldProcess($dlp.displayName, 'Delete Power Platform DLP policy')) {
             if (-not $isDryRun -and -not [string]::IsNullOrWhiteSpace([string]$dlp.id)) {
                 $deleteDlpUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/apiPolicies/$($dlp.id)?api-version=2020-10-01"
-                & az rest --method DELETE --url $deleteDlpUrl | Out-Null
+                & az rest --method DELETE --url $deleteDlpUrl --resource $bapBase | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     throw "Failed to delete DLP policy '$($dlp.displayName)' ($($dlp.id))."
                 }
@@ -124,7 +119,7 @@ if ($null -ne $runManifest.PSObject.Properties['powerPlatformEnvironment'] -and 
         if ($PSCmdlet.ShouldProcess($ppEnv.displayName, 'Delete Power Platform environment')) {
             if (-not $isDryRun -and -not [string]::IsNullOrWhiteSpace([string]$ppEnv.id)) {
                 $deleteEnvUrl = "$bapBase/providers/Microsoft.BusinessAppPlatform/scopes/admin/environments/$($ppEnv.id)?api-version=2023-06-01"
-                & az rest --method DELETE --url $deleteEnvUrl | Out-Null
+                & az rest --method DELETE --url $deleteEnvUrl --resource $bapBase | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     throw "Failed to delete Power Platform environment '$($ppEnv.displayName)' ($($ppEnv.id))."
                 }
