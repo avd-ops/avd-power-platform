@@ -2,6 +2,8 @@
 
 Part of [avd-ops](https://avd-ops.dev/), the open toolkit for Azure Virtual Desktop.
 
+Day-2 Power Platform and Power Automate workflow control plane (`avd-power-platform`), orchestrated by [avd-landing-zone](https://github.com/avd-ops/avd-landing-zone#readme) ([avd-ops docs](https://avd-ops.dev/docs/repos/avd-power-platform.html), [decision 0009](https://avd-ops.dev/docs/decisions/0009-split-landing-zone-into-five-control-planes.html)).
+
 > [!WARNING]
 > **Personal project. Research and learning only. Not for production. No warranty.**
 >
@@ -10,14 +12,21 @@ Part of [avd-ops](https://avd-ops.dev/), the open toolkit for Azure Virtual Desk
 > - It is provided **"as is", without warranty of any kind**, under the [MIT License](LICENSE). You use it at your own risk.
 > - **Contributions and forks are welcome and encouraged.** See [Contributing](#contributing).
 
-## Role in avd-ops
+## How it connects
 
-Day-2 Power Platform and Power Automate workflow control plane (`avd-power-platform`), orchestrated by [avd-landing-zone](https://github.com/avd-ops/avd-landing-zone) ([decision 0009](https://avd-ops.dev/docs/decisions/0009-split-landing-zone-into-five-control-planes.html)).
+| Direction | Repo | Relationship |
+|---|---|---|
+| Front door | [avd-ops](https://github.com/avd-ops/avd-ops#readme) | Overview, [repo page](https://avd-ops.dev/docs/repos/avd-power-platform.html), and platform decisions |
+| Orchestrator | [avd-landing-zone](https://github.com/avd-ops/avd-landing-zone#readme) | Invokes `avd-power-platform` for day-2 automation |
+| Upstream | [avd-entra](https://github.com/avd-ops/avd-entra#readme) | Supplies `entra-manifest.json` approval and user group targets |
+| Upstream | [avd-azure](https://github.com/avd-ops/avd-azure#readme) | Supplies `azure-outputs.json` host pool references |
+| Optional ITSM | [avd-servicenow](https://github.com/avd-ops/avd-servicenow#readme) | Wires ServiceNow Catalog Item templates to Power Platform fulfillment flows |
+| Standards | [avd-assess](https://github.com/avd-ops/avd-assess#readme) | Power Platform governance method (`methods/power-platform.md`) |
 
 ## What it does
 
 - Deploys dedicated Power Platform environments, strict DLP policies, and Bicep `Microsoft.PowerPlatform/enterprisePolicies` for VNet injection.
-- Ships source-controlled, unpacked Power Automate solutions wired to `avd-azure` host pools and `avd-entra` groups.
+- Ships source-controlled, unpacked Power Automate solutions wired to [avd-azure](https://github.com/avd-ops/avd-azure#readme) host pools and [avd-entra](https://github.com/avd-ops/avd-entra#readme) groups.
 - Automates self-service desktop and pool access requests in Microsoft Teams with manager approval gates.
 - Automates approval-gated session-host drain, restart, personal desktop start-on-demand, and stale FSLogix profile alerts.
 - Driven headlessly via Bicep, PowerShell 7, Bash, Python and the Power Platform CLI (`pac`) / Web API.
@@ -25,6 +34,11 @@ Day-2 Power Platform and Power Automate workflow control plane (`avd-power-platf
 ## Contracts
 
 Consumes `entra-manifest.json` and `azure-outputs.json` and produces `power-platform-manifest.json` (environment ID, DLP policy state, and active workflow solution versions).
+
+## Docs
+
+- Agent instructions & guardrails: [AGENTS.md](AGENTS.md)
+- Repo page on avd-ops: [avd-ops.dev/docs/repos/avd-power-platform](https://avd-ops.dev/docs/repos/avd-power-platform.html)
 
 ## Contributing
 
